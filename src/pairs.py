@@ -1,5 +1,6 @@
 """Orientation extraction for all records and construction of site-pair examples."""
 import os
+import re
 import numpy as np
 import pandas as pd
 from . import config as C
@@ -14,36 +15,77 @@ def load_flatfile(path):
     return df
 
 
+def parse_direction(name):
+    """3-digit compass direction at the end of a PEER file name, e.g. 'A-HMC180.AT2' -> 180."""
+    m = re.search(r"(\d{3})\.at2$", str(name).strip(), re.I)
+    return int(m.group(1)) % 360 if m else None
+
+
+def component_sign(az1, az2):
+    """+1 if H2 points 90 deg clockwise of H1, -1 if 90 deg anticlockwise, else None."""
+    if az1 is None or az2 is None:
+        return None
+    d = (az2 - az1) % 360
+    return 1 if d == 90 else (-1 if d == 270 else None)
+
+
+def _index_files(ts_dir):
+    """Index waveform files by RSN (PEER download names start with 'RSN<n>_') and by plain name."""
+    by_rsn, by_name = {}, {}
+    for root, _, files in os.walk(ts_dir):
+        for f in files:
+            path = os.path.join(root, f)
+            by_name[f.lower()] = path
+            m = re.match(r"RSN(\d+)_", f, re.I)
+            if m:
+                by_rsn.setdefault(int(m.group(1)), []).append(path)
+    return by_rsn, by_name
+
+
+def _find_file(index, rsn, flat_name):
+    by_rsn, by_name = index
+    base = os.path.basename(str(flat_name).replace("\\", "/")).lower()     # 'a-hmc180.at2'
+    for path in by_rsn.get(int(rsn), []):
+        if os.path.basename(path).lower().endswith(base):
+            return path
+    return by_name.get(base)
+
+
 def compute_orientations(df, ts_dir, cache_csv=None, verbose=True):
     """Add 'theta' (geographic RotD100 orientation, deg 0-180) to each record."""
     if cache_csv and os.path.exists(cache_csv):
         cached = pd.read_csv(cache_csv)
         return df.merge(cached, on=C.RSN, how="inner")
-    index = {}
-    for root, _, files in os.walk(ts_dir):
-        for f in files:
-            index[f.lower()] = os.path.join(root, f)
-    thetas, ok = [], []
+    index = _index_files(ts_dir)
+    thetas, ok, why = [], [], {"no_file": 0, "bad_direction": 0, "read_error": 0}
     for k, row in df.iterrows():
+        theta, good = np.nan, False
         try:
-            p1 = index[os.path.basename(str(row[C.H1_FILE])).lower()]
-            p2 = index[os.path.basename(str(row[C.H2_FILE])).lower()]
-            a1, dt1 = read_at2(p1)
-            a2, dt2 = read_at2(p2)
-            ang, _ = rotd100_orientation(a1, a2, dt1, C.PSA_PERIOD_S, C.DAMPING, C.ANGLE_STEP_DEG)
-            az = row[C.H1_AZIMUTH] if C.H1_AZIMUTH else 0.0
-            thetas.append((ang + az) % 180.0)
-            ok.append(True)
-        except Exception as e:                      # missing/corrupt file
-            thetas.append(np.nan)
-            ok.append(False)
-        if verbose and (k + 1) % 200 == 0:
+            p1 = _find_file(index, row[C.RSN], row[C.H1_FILE])
+            p2 = _find_file(index, row[C.RSN], row[C.H2_FILE])
+            if p1 is None or p2 is None:
+                why["no_file"] += 1
+            else:
+                az1, az2 = parse_direction(row[C.H1_FILE]), parse_direction(row[C.H2_FILE])
+                sign = component_sign(az1, az2)
+                if sign is None:
+                    why["bad_direction"] += 1
+                else:
+                    a1, dt1 = read_at2(p1)
+                    a2, dt2 = read_at2(p2)
+                    ang, _ = rotd100_orientation(a1, a2, dt1, C.PSA_PERIOD_S, C.DAMPING, C.ANGLE_STEP_DEG)
+                    theta, good = (az1 + sign * ang) % 180.0, True
+        except Exception:
+            why["read_error"] += 1
+        thetas.append(theta)
+        ok.append(good)
+        if verbose and (k + 1) % 500 == 0:
             print(f"  orientations: {k + 1}/{len(df)}")
     out = df.copy()
     out["theta"] = thetas
     out = out[ok].reset_index(drop=True)
     if verbose:
-        print(f"  usable records: {len(out)}/{len(df)}")
+        print(f"  usable records: {len(out)}/{len(df)}  (skipped: {why})")
     if cache_csv:
         out[[C.RSN, "theta"]].to_csv(cache_csv, index=False)
     return out

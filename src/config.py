@@ -14,17 +14,14 @@ LON = "Station Longitude"
 MAG = "Earthquake Magnitude"
 H1_FILE = "File Name (Horizontal 1)"
 H2_FILE = "File Name (Horizontal 2)"
-# Azimuth (deg from north) of horizontal-1 component. Needed so orientations of
-# different stations are measured in the SAME reference frame. Set to None only
-# if your flatfile has no such column (then angles are relative to H1 -> wrong
-# for real data; see README).
-H1_AZIMUTH = "H1 Azimuth (deg)"
+# The compass direction of each horizontal component is read from the 3-digit number
+# at the end of its file name (e.g. 'A-HMC180.AT2' -> 180 degrees from north).
 
 # ---- features --------------------------------------------------------------
 # Event-level (same for both sites of a pair)
 EVENT_NUM = [
-    "Earthquake Magnitude", "Hypocenter Depth (km)", "Rupture Width (km)",
-    "Rupture Length (km)", "Dip (deg)", "Rake Angle (deg)",
+    "Earthquake Magnitude", "Hypocenter Depth (km)", "Fault Rupture Width (km)",
+    "Fault Rupture Length for Calculation of Ry (km)", "Dip (deg)", "Rake Angle (deg)",
 ]
 EVENT_CAT = ["Mechanism Based on Rake Angle"]
 

@@ -31,21 +31,23 @@ def make(out_dir, n_events=20, n_sta=25, seed=0):
             lat, lon = 34 + y / 111.0, -118 + x / 92.0
             phi = (ev_angle + 40 * np.sin(k[0] * x + k[1] * y) + rng.normal(0, 15)) % 180
             src = signal.sosfilt(sos, rng.randn(n)) * env * rng.uniform(0.02, 0.2)
-            a1_az = rng.uniform(0, 360)
+            a1_az = int(rng.randint(0, 360))
             r = np.deg2rad(phi - a1_az)
             h1 = src * np.cos(r) + 0.05 * src.std() * rng.randn(n)
             h2 = src * np.sin(r) + 0.05 * src.std() * rng.randn(n)
             rsn += 1
-            f1, f2 = f"RSN{rsn}_H1.AT2", f"RSN{rsn}_H2.AT2"
+            d2 = (a1_az + 90) % 360
+            flat1, flat2 = f"EVT{e}\\S{s}{a1_az:03d}.AT2", f"EVT{e}\\S{s}{d2:03d}.AT2"
+            f1, f2 = f"RSN{rsn}_EVT{e}_S{s}{a1_az:03d}.AT2", f"RSN{rsn}_EVT{e}_S{s}{d2:03d}.AT2"
             _write_at2(os.path.join(out_dir, "waveforms", f1), h1, dt)
             _write_at2(os.path.join(out_dir, "waveforms", f2), h2, dt)
             dist = rng.uniform(5, 60)
             pga = float(np.abs(src).max())
             rows.append({
                 C.RSN: rsn, C.EVENT: e, C.STATION: e * 1000 + s, C.LAT: lat, C.LON: lon,
-                C.MAG: mag, C.H1_FILE: f1, C.H2_FILE: f2, C.H1_AZIMUTH: a1_az,
-                "Hypocenter Depth (km)": rng.uniform(5, 20), "Rupture Width (km)": rng.uniform(5, 20),
-                "Rupture Length (km)": rng.uniform(10, 60), "Dip (deg)": rng.uniform(40, 90),
+                C.MAG: mag, C.H1_FILE: flat1, C.H2_FILE: flat2,
+                "Hypocenter Depth (km)": rng.uniform(5, 20), "Fault Rupture Width (km)": rng.uniform(5, 20),
+                "Fault Rupture Length for Calculation of Ry (km)": rng.uniform(10, 60), "Dip (deg)": rng.uniform(40, 90),
                 "Rake Angle (deg)": rng.uniform(-180, 180),
                 "Mechanism Based on Rake Angle": rng.choice([0, 1, 2, 3]),
                 "EpiD (km)": dist, "HypD (km)": dist + 8, "Joyner-Boore Dist. (km)": dist - 2,
