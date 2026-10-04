@@ -9,7 +9,7 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 
 RES = sys.argv[1] if len(sys.argv) > 1 else "results"
 OUT = "Writeup_Earthquake_Directionality.pdf"
-REPO = "https://github.com/<your-username>/earthquake-directionality-ml"   # <- edit
+REPO = "https://github.com/DEEKSHAGURURAJA/earthquake-directionality-ml."   # <- edit
 
 S = getSampleStyleSheet()
 body = ParagraphStyle("b", parent=S["Normal"], fontSize=8.8, leading=11, alignment=4)
