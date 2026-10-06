@@ -1,6 +1,7 @@
 """Build the PDF write-up. Uses results/ if present, otherwise leaves blanks to fill."""
 import json, os, sys
 import pandas as pd
+from src import config as C
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -9,7 +10,19 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 
 RES = sys.argv[1] if len(sys.argv) > 1 else "results"
 OUT = "Writeup_Earthquake_Directionality.pdf"
-REPO = "https://github.com/DEEKSHAGURURAJA/earthquake-directionality-ml."   # <- edit
+# ---- EDIT THESE TWO TEXTS IN YOUR OWN WORDS (avoid the characters < > and &) ----------
+#All three models predicted the angle difference no better than guessing its average: test R2 was close to zero and the mean absolute error was about 23 degrees, which is close to the 22.5 degrees obtained by always predicting 45 degrees. Closer site pairs did show smaller angle differences (about 37 degrees below 10 km, against about 47 degrees at 50 to 100 km), which agrees with the reference paper, but with only 17 earthquakes and 20 pairs within 5 km this was too little for the models to learn from. The neural network fitted the training data slightly better than the test data. With more records at short distances, as in the paper's 5 km dataset, we would expect clearer results.
+CONCLUSION_EXTRA = (
+    "All three models predicted the angle difference no better than guessing its average: the test R-squared was close to zero "
+    "and the mean absolute error was about 23 degrees, close to the 22.5 degrees obtained by always predicting 45 degrees. "
+    "Closer site pairs did show smaller angle differences (about 37 degrees below 10 km, against about 47 degrees at 50 to 100 km), "
+    "which agrees with the reference paper, but with only 17 earthquakes and 20 pairs within 5 km there was too little short-distance "
+    "data for the models to learn from. The neural network fitted the training data better than the test data. With the full 5 km "
+    "dataset of the paper, we would expect clearer results."
+)
+CONTRIBUTIONS = "Deeksha G: ____ . Harshitha B: ____ ."   # write who did what, honestly
+# ---------------------------------------------------------------------------------------
+REPO = "https://github.com/DEEKSHAGURURAJA/earthquake-directionality-ml."   # <- edit if needed
 
 S = getSampleStyleSheet()
 body = ParagraphStyle("b", parent=S["Normal"], fontSize=8.8, leading=11, alignment=4)
@@ -21,6 +34,11 @@ have = os.path.exists(f"{RES}/metrics.csv") and os.path.exists(f"{RES}/run_summa
 m = pd.read_csv(f"{RES}/metrics.csv") if have else None
 info = json.load(open(f"{RES}/run_summary.json")) if have else {}
 B = "____"
+DIST = f"{C.MAX_PAIR_DIST_KM:g}"
+LIMIT = "" if C.MAX_PAIR_DIST_KM == 5 else (
+    f"Note: the reference paper limited site pairs to 5 km. PEER restricts waveform downloads to roughly 200 records per two weeks, "
+    f"so our dataset is much smaller than the paper's and we allowed sites up to {DIST} km apart; our results are therefore not "
+    f"directly comparable with the paper's.")
 g = lambda k: f"{info[k]:,}" if k in info else B
 
 story = [
@@ -38,13 +56,13 @@ story = [
     Paragraph("2. Dataset", h),
     Paragraph(f"We use the NGA-West2 database (PEER): a flatfile with 274 attributes per record plus the two-component acceleration "
               f"time series of shallow crustal earthquakes worldwide. Records from earthquakes with magnitude &lt; 5.0 were removed "
-              f"({g('n_records')} records kept). &Delta;&theta; is not in the flatfile, so we computed the RotD100 orientation of each record "
-              f"from its waveforms and paired all stations that recorded the same earthquake and are within 5&nbsp;km of each other, "
+              f"(waveforms were available for {g('n_records')} of the remaining records). &Delta;&theta; is not in the flatfile, so we computed the RotD100 orientation of each record "
+              f"from its waveforms and paired all stations that recorded the same earthquake and are within {DIST}&nbsp;km of each other, "
               f"giving {g('n_pairs')} examples from {g('n_events')} earthquakes. Features include earthquake source data (magnitude, "
               f"mechanism, rupture size, depth), distance measures, site properties (V<sub>s30</sub>, NEHRP class), ground-motion "
               f"intensities (PGA, PGV, PGD) and the distance between the two sites. Numeric features were standardised "
               f"(zero mean, unit variance) and categorical ones one-hot encoded. Split: 80% train, 10% validation, 10% test "
-              f"({g('n_train')} / {g('n_val')} / {g('n_test')}).", body),
+              f"({g('n_train')} / {g('n_val')} / {g('n_test')}). {LIMIT}", body),
     Paragraph("3. Approach", h),
     Paragraph("<b>Benchmark:</b> linear regression &Delta;&theta; = c<sub>1</sub> + c<sub>2</sub>d using only the inter-site distance. "
               "<b>Ridge regression:</b> least squares with an L2 penalty on the coefficients; features were chosen by a backward analysis "
@@ -73,8 +91,6 @@ t = Table(rows, colWidths=[4.5 * cm, 3 * cm, 3 * cm, 3.5 * cm])
 t.setStyle(TableStyle([("FONTSIZE", (0, 0), (-1, -1), 8.5), ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
                        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey), ("ALIGN", (1, 0), (-1, -1), "CENTER")]))
 story += [t, Spacer(1, 4)]
-for f in ("fig_neural_trend_distance.png", "fig_neural_true_vs_pred.png"):
-    pass
 figs = [f"{RES}/fig_ridge_trend_distance.png", f"{RES}/fig_neural_true_vs_pred.png"]
 if have and all(os.path.exists(x) for x in figs):
     story.append(Table([[Image(figs[0], 6.3 * cm, 4.4 * cm), Image(figs[1], 9.6 * cm, 4.5 * cm)]]))
@@ -84,16 +100,15 @@ if have:
     best = m.loc[m["R2_test"].idxmax()]
     nn = m[m.Model == "Neural network"].iloc[0]
     story.append(Paragraph(
-        f"The {best['Model'].lower()} gave the best test performance (R<super>2</super> = {best.R2_test:.3f}, MAE = {best.MAE_test:.1f}&deg;), "
+        f"The {best['Model'].lower()} had the highest test score (R<super>2</super> = {best.R2_test:.3f}, MAE = {best.MAE_test:.1f}&deg;), "
         f"compared with R<super>2</super> = {m.R2_test.iloc[0]:.3f} for the distance-only benchmark. The neural network reached R<super>2</super> = {nn.R2_train:.3f} "
         f"on training data and {nn.R2_test:.3f} on test data. "
-        "[Add 2&ndash;3 sentences in your own words: Do the models capture the mean trend of &Delta;&theta; versus distance and PGA (see figures)? "
-        "Is there overfitting? What uncertainty remains? What would you do next, e.g. predict mean and variance, or more than two sites?]", body))
+        + CONCLUSION_EXTRA, body))
 else:
     story.append(Paragraph("[Fill after running the pipeline: which model performed best, whether the models capture the mean trend of "
                            "&Delta;&theta; with distance and PGA, overfitting, remaining uncertainty and future work.]", body))
 story += [Paragraph("7. Contributions", h),
-          Paragraph("[Describe who did what, e.g. Deeksha: ____ ; Harshitha: ____ .]", body),
+          Paragraph(CONTRIBUTIONS, body),
           Paragraph("<i>Reference: Poulos, A. and Silva-Lopez, R., Detecting and predicting earthquake ground motion directionality patterns "
                     "using machine learning tools (Stanford); Ancheta et al. (2014), NGA-West2 database, Earthquake Spectra.</i>", body)]
 
