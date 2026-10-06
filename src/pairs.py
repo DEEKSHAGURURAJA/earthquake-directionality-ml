@@ -4,7 +4,6 @@ import re
 import numpy as np
 import pandas as pd
 from . import config as C
-from .waveform import read_at2, rotd100_orientation
 
 
 def load_flatfile(path):
@@ -16,9 +15,22 @@ def load_flatfile(path):
 
 
 def parse_direction(name):
-    """3-digit compass direction at the end of a PEER file name, e.g. 'A-HMC180.AT2' -> 180."""
-    m = re.search(r"(\d{3})\.at2$", str(name).strip(), re.I)
-    return int(m.group(1)) % 360 if m else None
+    """Parse component direction from PEER filename."""
+    s = str(name).strip()
+
+    # Explicit 3-digit azimuth, e.g. A-HMC180.AT2 -> 180
+    m = re.search(r"(\d{3})\.at2$", s, re.I)
+    if m:
+        return int(m.group(1)) % 360
+
+    # Cardinal horizontal components used by PEER records
+    if re.search(r"(NS|N-S)\.at2$", s, re.I):
+        return 0
+
+    if re.search(r"(EW|E-W)\.at2$", s, re.I):
+        return 90
+
+    return None
 
 
 def component_sign(az1, az2):
@@ -52,42 +64,46 @@ def _find_file(index, rsn, flat_name):
 
 
 def compute_orientations(df, ts_dir, cache_csv=None, verbose=True):
-    """Add 'theta' (geographic RotD100 orientation, deg 0-180) to each record."""
+    """Add 'theta' (geographic RotD100 orientation, deg 0-180) to each record.
+    Results are cached per record; only records not yet in the cache are computed,
+    so newly downloaded waveforms are picked up automatically."""
+    from .waveform import read_at2, rotd100_orientation   # needs scipy; imported only when used
+    cached = None
     if cache_csv and os.path.exists(cache_csv):
-        cached = pd.read_csv(cache_csv)
-        return df.merge(cached, on=C.RSN, how="inner")
+        cached = pd.read_csv(cache_csv)[[C.RSN, "theta"]]
+    done = set(cached[C.RSN]) if cached is not None else set()
+    todo = df[~df[C.RSN].isin(done)].reset_index(drop=True)
     index = _index_files(ts_dir)
-    thetas, ok, why = [], [], {"no_file": 0, "bad_direction": 0, "read_error": 0}
-    for k, row in df.iterrows():
-        theta, good = np.nan, False
+    new_rows, why = [], {"no_file": 0, "bad_direction": 0, "read_error": 0}
+    for k, row in todo.iterrows():
         try:
             p1 = _find_file(index, row[C.RSN], row[C.H1_FILE])
             p2 = _find_file(index, row[C.RSN], row[C.H2_FILE])
             if p1 is None or p2 is None:
                 why["no_file"] += 1
-            else:
-                az1, az2 = parse_direction(row[C.H1_FILE]), parse_direction(row[C.H2_FILE])
-                sign = component_sign(az1, az2)
-                if sign is None:
-                    why["bad_direction"] += 1
-                else:
-                    a1, dt1 = read_at2(p1)
-                    a2, dt2 = read_at2(p2)
-                    ang, _ = rotd100_orientation(a1, a2, dt1, C.PSA_PERIOD_S, C.DAMPING, C.ANGLE_STEP_DEG)
-                    theta, good = (az1 + sign * ang) % 180.0, True
+                continue
+            az1, az2 = parse_direction(row[C.H1_FILE]), parse_direction(row[C.H2_FILE])
+            sign = component_sign(az1, az2)
+            if sign is None:
+                why["bad_direction"] += 1
+                continue
+            a1, dt1 = read_at2(p1)
+            a2, dt2 = read_at2(p2)
+            ang, _ = rotd100_orientation(a1, a2, dt1, C.PSA_PERIOD_S, C.DAMPING, C.ANGLE_STEP_DEG)
+            new_rows.append({C.RSN: row[C.RSN], "theta": (az1 + sign * ang) % 180.0})
         except Exception:
             why["read_error"] += 1
-        thetas.append(theta)
-        ok.append(good)
-        if verbose and (k + 1) % 500 == 0:
-            print(f"  orientations: {k + 1}/{len(df)}")
-    out = df.copy()
-    out["theta"] = thetas
-    out = out[ok].reset_index(drop=True)
-    if verbose:
-        print(f"  usable records: {len(out)}/{len(df)}  (skipped: {why})")
+        if verbose and (k + 1) % 1000 == 0:
+            print(f"  checked {k + 1}/{len(todo)} records")
+    allc = pd.concat([cached, pd.DataFrame(new_rows)], ignore_index=True) if cached is not None else pd.DataFrame(new_rows)
+    if allc.empty:
+        allc = pd.DataFrame({C.RSN: [], "theta": []})
     if cache_csv:
-        out[[C.RSN, "theta"]].to_csv(cache_csv, index=False)
+        allc.to_csv(cache_csv, index=False)
+    out = df.merge(allc, on=C.RSN, how="inner").reset_index(drop=True)
+    if verbose:
+        print(f"  new orientations computed: {len(new_rows)} | in cache: {len(done)} | usable records now: {len(out)}")
+        print(f"  not usable: {why}")
     return out
 
 
@@ -148,4 +164,6 @@ def build_pairs(df, max_km=None):
         keep = (d <= max_km) & (g[C.STATION].values[i] != g[C.STATION].values[j])
         if keep.any():
             frames.append(pair_frame(g, i[keep], j[keep]))
+    if not frames:
+        return pd.DataFrame({"event": []})
     return pd.concat(frames, ignore_index=True)

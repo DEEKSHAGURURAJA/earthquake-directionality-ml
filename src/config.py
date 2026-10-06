@@ -35,7 +35,7 @@ SITE_CAT = ["Preferred NEHRP Based on Vs30"]
 
 # ---- project settings ------------------------------------------------------
 MIN_MAGNITUDE = 5.0        # drop events with M < 5.0 (as in the reference paper)
-MAX_PAIR_DIST_KM = 5.0     # keep site pairs closer than 5 km
+MAX_PAIR_DIST_KM = 100     # keep site pairs closer than 5 km
 PSA_PERIOD_S = 1.0         # oscillator period used for RotD100 orientation
 DAMPING = 0.05
 ANGLE_STEP_DEG = 1
