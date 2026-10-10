@@ -1,0 +1,17 @@
+{
+  "n_records": 198,
+  "n_pairs": 2010,
+  "n_events": 17,
+  "n_train": 1608,
+  "n_val": 201,
+  "n_test": 201,
+  "selected_features": [
+    "distance_km"
+  ],
+  "ridge_alpha": 0.001,
+  "nn_layers": 2,
+  "nn_neurons": 20,
+  "nn_alpha": 1.0,
+  "psa_period_s": 1.0,
+  "synthetic": false
+}
