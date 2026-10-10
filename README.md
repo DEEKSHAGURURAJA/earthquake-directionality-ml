@@ -53,7 +53,7 @@ pip install -r requirements.txt     # tested with Python 3.13
 python run_pipeline.py --flatfile data/NGAWest2_flatfile.csv --ts-dir data/timeseries --layers 1 2 --neurons 10 20 --nn-alphas 1 10 --max-iter 1000
 
 # demo: predict Δθ for two sites of one earthquake
-python demo.py --artifacts results/model_artifacts.joblib --random
+py -3.13 demo.py --artifacts results_final\model_artifacts.joblib --random
 
 # PDF write-up with the real numbers
 python make_report.py
